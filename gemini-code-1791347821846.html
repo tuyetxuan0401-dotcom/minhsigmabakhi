@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ricochet Shooter - Game Bắn Đạn Nảy</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #1a1a2e;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        h1 { margin-bottom: 10px; font-size: 24px; color: #e94560; }
+        #game-container {
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        canvas {
+            background: #0f3460;
+            display: block;
+            cursor: crosshair;
+        }
+        .ui-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 18px;
+            pointer-events: none;
+        }
+        .btn-reset {
+            margin-top: 15px;
+            padding: 10px 20px;
+            background: #e94560;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .btn-reset:hover { background: #0f3460; }
+    </style>
+</head>
+<body>
+
+    <h1>RICOCHET SHOOTER</h1>
+    <div id="game-container">
+        <div class="ui-panel">
+            <span id="level-text">Màn: 1</span>
+            <span id="ammo-text">Đạn: 3</span>
+        </div>
+        <canvas id="gameCanvas" width="800" height="500"></canvas>
+    </div>
+    <button class="btn-reset" onclick="resetLevel()">Chơi lại màn này</button>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Trạng thái game
+        let level = 1;
+        let ammo = 3;
+        let gameOver = false;
+        let gameWon = false;
+
+        // Nhân vật người chơi
+        const player = { x: 80, y: 380, width: 30, height: 50, color: '#4e54c8' };
+
+        // Danh sách đạn, kẻ địch, vật cản
+        let bullets = [];
+        let enemies = [];
+        let walls = [];
+
+        // Tọa độ chuột
+        let mouse = { x: 0, y: 0 };
+
+        // Cấu hình Level
+        const levelData = [
+            // Level 1: Đơn giản
+            {
+                ammo: 3,
+                enemies: [{ x: 650, y: 380, width: 30, height: 50, alive: true }],
+                walls: [
+                    { x: 400, y: 250, width: 20, height: 200 } // Tường chắn giữa
+                ]
+            },
+            // Level 2: Nảy tường trên
+            {
+                ammo: 2,
+                enemies: [{ x: 700, y: 150, width: 30, height: 50, alive: true }],
+                walls: [
+                    { x: 500, y: 0, width: 20, height: 300 },
+                    { x: 650, y: 200, width: 100, height: 20 }
+                ]
+            }
+        ];
+
+        function loadLevel(lvl) {
+            const data = levelData[(lvl - 1) % levelData.length];
+            ammo = data.ammo;
+            bullets = [];
+            gameOver = false;
+            gameWon = false;
+
+            // Deep copy enemies & walls
+            enemies = data.enemies.map(e => ({ ...e }));
+            walls = data.walls.map(w => ({ ...w }));
+
+            updateUI();
+        }
+
+        function updateUI() {
+            document.getElementById('level-text').innerText = `Màn: ${level}`;
+            document.getElementById('ammo-text').innerText = `Đạn: ${ammo}`;
+        }
+
+        // Lắng nghe sự kiện chuột
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.clientX - rect.left;
+            mouse.y = e.clientY - rect.top;
+        });
+
+        canvas.addEventListener('click', () => {
+            if (ammo > 0 && !gameOver && !gameWon) {
+                fireBullet();
+                ammo--;
+                updateUI();
+            }
+        });
+
+        function fireBullet() {
+            const angle = Math.atan2(mouse.y - (player.y + 15), mouse.x - (player.x + 15));
+            const speed = 12;
+            bullets.push({
+                x: player.x + 15,
+                y: player.y + 15,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                radius: 5,
+                bounces: 0,
+                maxBounces: 5
+            });
+        }
+
+        function resetLevel() {
+            loadLevel(level);
+        }
+
+        // Vòng lặp Cập nhật Logic Game
+        function update() {
+            // Cập nhật đạn
+            bullets.forEach((b, index) => {
+                b.x += b.vx;
+                b.y += b.vy;
+
+                // Nảy tường biên ngoài
+                if (b.x - b.radius < 0 || b.x + b.radius > canvas.width) {
+                    b.vx *= -1;
+                    b.bounces++;
+                }
+                if (b.y - b.radius < 0 || b.y + b.radius > canvas.height) {
+                    b.vy *= -1;
+                    b.bounces++;
+                }
+
+                // Nảy vật cản (Walls)
+                walls.forEach(w => {
+                    if (b.x > w.x && b.x < w.x + w.width && b.y > w.y && b.y < w.y + w.height) {
+                        // Va chạm đơn giản: đổi hướng
+                        b.vx *= -1;
+                        b.vy *= -1;
+                        b.bounces++;
+                    }
+                });
+
+                // Kiểm tra va chạm Kẻ địch
+                enemies.forEach(e => {
+                    if (e.alive &&
+                        b.x > e.x && b.x < e.x + e.width &&
+                        b.y > e.y && b.y < e.y + e.height) {
+                        e.alive = false;
+                        bullets.splice(index, 1);
+                    }
+                });
+
+                // Xóa đạn nếu nảy quá nhiều lần
+                if (b.bounces > b.maxBounces) {
+                    bullets.splice(index, 1);
+                }
+            });
+
+            // Kiểm tra thắng / thua
+            const remainingEnemies = enemies.filter(e => e.alive).length;
+            if (remainingEnemies === 0 && !gameWon) {
+                gameWon = true;
+                setTimeout(() => {
+                    alert("Thắng rồi! Qua màn tiếp theo.");
+                    level++;
+                    loadLevel(level);
+                }, 300);
+            } else if (ammo === 0 && bullets.length === 0 && remainingEnemies > 0 && !gameOver) {
+                gameOver = true;
+                setTimeout(() => {
+                    alert("Hết đạn! Thử lại nào.");
+                    resetLevel();
+                }, 300);
+            }
+        }
+
+        // Vòng lặp Vẽ Đồ Họa
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Vẽ sàn nhà
+            ctx.fillStyle = '#16213e';
+            ctx.fillRect(0, 430, canvas.width, 70);
+
+            // Vẽ Người chơi
+            ctx.fillStyle = player.color;
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+
+            // Vẽ Đường nhắm (Laser Sight)
+            if (ammo > 0 && !gameOver && !gameWon) {
+                ctx.beginPath();
+                ctx.setLineDash([5, 5]);
+                ctx.moveTo(player.x + 15, player.y + 15);
+                ctx.lineTo(mouse.x, mouse.y);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // Vẽ Vật cản
+            ctx.fillStyle = '#e94560';
+            walls.forEach(w => {
+                ctx.fillRect(w.x, w.y, w.width, w.height);
+            });
+
+            // Vẽ Kẻ địch
+            enemies.forEach(e => {
+                if (e.alive) {
+                    ctx.fillStyle = '#ff4d4d';
+                    ctx.fillRect(e.x, e.y, e.width, e.height);
+                    // Mắt kẻ địch
+                    ctx.fillStyle = '#fff';
+                    ctx.fillRect(e.x + 5, e.y + 10, 5, 5);
+                }
+            });
+
+            // Vẽ Đạn
+            ctx.fillStyle = '#f9d56e';
+            bullets.forEach(b => {
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Khởi tạo
+        loadLevel(level);
+        gameLoop();
+    </script>
+</body>
+</html>
